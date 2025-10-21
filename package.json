@@ -1,0 +1,22 @@
+{
+  "name": "fonoster-coze-bridge",
+  "version": "0.1.0",
+  "description": "Realtime bridge between Fonoster AudioSocket (8kHz PCM) and Coze WebSocket (24kHz PCM) with on-the-fly resampling.",
+  "private": true,
+  "license": "MIT",
+  "main": "src/bridge_service.js",
+  "scripts": {
+    "start:bridge": "node src/bridge_service.js",
+    "start:voice": "node src/voice_agent_app.js"
+  },
+  "dependencies": {
+    "@fonoster/sdk": "^1.0.0",
+    "@fonoster/streams": "^1.0.0",
+    "@fonoster/voice": "^1.0.0",
+    "dotenv": "^16.4.5",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}
