@@ -1,7 +1,7 @@
 /*
   Bridge Service
   - Listens for Fonoster AudioSocket connections (8kHz PCM, 16-bit, mono)
-  - Linearly upsamples x3 to 24kHz PCM
+  - Linearly upsamples x3 to 24kHz PCM (fallback) or uses @purinton/resampler if available
   - Streams the 24kHz PCM to Coze WebSocket as binary frames
   - Consumes Coze streaming text and forwards to the live call via Fonoster SDK say()
 
@@ -14,6 +14,14 @@ const { AudioSocket } = require("@fonoster/streams");
 const WebSocket = require("ws");
 const dotenv = require("dotenv");
 const SDK = require("@fonoster/sdk");
+
+let ExternalResampler = null;
+try {
+  // Optional optimized resampler
+  ({ Resampler: ExternalResampler } = require("@purinton/resampler"));
+} catch (_) {
+  ExternalResampler = null;
+}
 
 dotenv.config();
 
@@ -90,6 +98,11 @@ audioSocket.onConnection(async (req, res) => {
   const pending = new FrameQueue();
   let cozeOpen = false;
 
+  // Optional external resampler instance (if available)
+  const resampler = ExternalResampler
+    ? new ExternalResampler({ inRate: 8000, outRate: 24000, inChannels: 1, outChannels: 1 })
+    : null;
+
   cozeWs.on("open", () => {
     cozeOpen = true;
     console.log(`[Bridge] Coze connected for sessionRef=${sessionRef}`);
@@ -138,6 +151,15 @@ audioSocket.onConnection(async (req, res) => {
         }
       }
 
+      // If Coze provides an audio URL for TTS, play it via Fonoster
+      if (event.data && event.data.audio_url) {
+        try {
+          await voiceSDK.play({ callRef: sessionRef, url: String(event.data.audio_url) });
+        } catch (e) {
+          console.warn(`[Bridge] voiceSDK.play failed (sessionRef=${sessionRef}):`, e.message || e);
+        }
+      }
+
       if (et === "dialog_ended" || et === "end") {
         try { await voiceSDK.hangup({ callRef: sessionRef }); } catch (_) {}
       }
@@ -150,13 +172,28 @@ audioSocket.onConnection(async (req, res) => {
   res.on("data", (dataBuffer) => {
     // dataBuffer: 8kHz 16-bit PCM (typically 320 bytes per 20ms)
     try {
-      const up = upsample8kTo24kLinear(dataBuffer);
-      if (!up || up.length === 0) return;
-
-      if (cozeOpen && cozeWs.readyState === WebSocket.OPEN) {
-        cozeWs.send(up, { binary: true });
+      if (resampler) {
+        // Use external high-quality resampler
+        resampler.write(dataBuffer);
+        let out;
+        // Drain all available output buffers
+        while ((out = resampler.read())) {
+          if (cozeOpen && cozeWs.readyState === WebSocket.OPEN) {
+            cozeWs.send(out, { binary: true });
+          } else {
+            pending.push(out);
+          }
+        }
       } else {
-        pending.push(up);
+        // Fallback linear upsampling
+        const up = upsample8kTo24kLinear(dataBuffer);
+        if (up && up.length) {
+          if (cozeOpen && cozeWs.readyState === WebSocket.OPEN) {
+            cozeWs.send(up, { binary: true });
+          } else {
+            pending.push(up);
+          }
+        }
       }
     } catch (e) {
       console.warn("[Bridge] Upsample/send error:", e.message || e);

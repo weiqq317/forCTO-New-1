@@ -45,6 +45,7 @@
 
 - src/bridge_service.js
   - 独立运行，监听来自 Fonoster 的 AudioSocket 连接；对 8kHz PCM 进行 x3 上采样为 24kHz PCM；将 24kHz PCM 以二进制帧推送给 Coze WebSocket。
+  - 默认使用简化的线性插值上采样（8k → 24k）。如安装可选依赖 `@purinton/resampler`，则自动切换为其高质量重采样实现。
   - 接收 Coze 返回的流式文本 token，调用 Fonoster SDK 的 `say()` 接口面向当前会话播放 TTS。
 
 - .env.example
