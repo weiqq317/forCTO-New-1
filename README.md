@@ -61,6 +61,8 @@
 2) 安装依赖
 - 本仓库仅提供参考代码与 package.json，实际运行前请执行：
   - `npm install`
+- 可选：安装高质量重采样器 `@purinton/resampler`（未安装则自动回退至线性插值）：
+  - `npm install @purinton/resampler`
 
 3) 配置环境变量
 - 复制 .env.example 为 .env 并补充：

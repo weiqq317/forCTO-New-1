@@ -13,7 +13,6 @@
     "@fonoster/sdk": "^1.0.0",
     "@fonoster/streams": "^1.0.0",
     "@fonoster/voice": "^1.0.0",
-    "@purinton/resampler": "*",
     "dotenv": "^16.4.5",
     "ws": "^8.18.0"
   },
