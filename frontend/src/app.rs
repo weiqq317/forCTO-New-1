@@ -10,17 +10,22 @@ extern "C" {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct MediaAsset {
+pub struct Photo {
     pub id: i64,
-    pub file_path: String,
-    pub imported_at: String,
+    pub path: String,
+    pub hash: Option<String>,
+    pub created_at: String,
+    pub width: Option<i64>,
+    pub height: Option<i64>,
+    #[serde(rename = "type")]
+    pub photo_type: Option<String>,
 }
 
 #[derive(Serialize)]
 struct InvokeArgs {}
 
 pub struct MyApp {
-    media: Arc<Mutex<Vec<MediaAsset>>>,
+    media: Arc<Mutex<Vec<Photo>>>,
     axum_port: Arc<Mutex<Option<u16>>>,
 }
 
@@ -60,7 +65,7 @@ impl MyApp {
                 serde_wasm_bindgen::to_value(&InvokeArgs {}).unwrap(),
             )
             .await;
-            if let Ok(media) = serde_wasm_bindgen::from_value::<Vec<MediaAsset>>(res) {
+            if let Ok(media) = serde_wasm_bindgen::from_value::<Vec<Photo>>(res) {
                 *media_clone.lock().unwrap() = media;
                 ctx.request_repaint();
             }
@@ -80,7 +85,7 @@ impl MyApp {
                 serde_wasm_bindgen::to_value(&InvokeArgs {}).unwrap(),
             )
             .await;
-            if let Ok(media) = serde_wasm_bindgen::from_value::<Vec<MediaAsset>>(res) {
+            if let Ok(media) = serde_wasm_bindgen::from_value::<Vec<Photo>>(res) {
                 *media_clone.lock().unwrap() = media;
                 ctx.request_repaint();
             }
@@ -108,7 +113,7 @@ impl eframe::App for MyApp {
                                 let url = format!(
                                     "http://127.0.0.1:{}/media?path={}",
                                     p,
-                                    urlencoding::encode(&m.file_path)
+                                    urlencoding::encode(&m.path)
                                 );
                                 ui.add(egui::Image::new(url).max_size(egui::vec2(100.0, 100.0)));
                             }
