@@ -2,16 +2,17 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod db;
-mod server;
+mod web_server;
+mod backup;
 mod models;
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::State;
 use walkdir::WalkDir;
 use models::Photo;
 
 struct AppState {
-    db: Mutex<db::Db>,
+    db: Arc<Mutex<db::Db>>,
     axum_port: u16,
 }
 
@@ -54,10 +55,17 @@ async fn import_directory(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn run_backup(state: State<'_, AppState>) -> Result<String, String> {
+    let provider = Box::new(crate::backup::WebDavBackup::new("http://localhost:8080/webdav".to_string(), None, None));
+    let backup_system = crate::backup::BackupSystem::new(provider, state.db.clone());
+    
+    let backed_up = backup_system.backup_all().await?;
+    Ok(format!("Backed up {} photos", backed_up))
+}
+
 #[tokio::main]
 async fn main() {
-    let axum_port = server::start_server().await;
-
     tauri::Builder::default()
         .setup(move |app| {
             let app_dir = app
@@ -66,10 +74,15 @@ async fn main() {
                 .unwrap_or_else(|| std::path::PathBuf::from("."));
             std::fs::create_dir_all(&app_dir).unwrap();
             let db_path = app_dir.join("index.db");
-            let db = db::Db::new(db_path).expect("Failed to initialize database");
+            let db = Arc::new(Mutex::new(db::Db::new(db_path).expect("Failed to initialize database")));
+
+            let db_clone = db.clone();
+            let axum_port = tauri::async_runtime::block_on(async move {
+                web_server::start_server(db_clone, "admin", "admin").await
+            });
 
             app.manage(AppState {
-                db: Mutex::new(db),
+                db,
                 axum_port,
             });
             Ok(())
@@ -77,7 +90,8 @@ async fn main() {
         .invoke_handler(tauri::generate_handler![
             get_axum_port,
             fetch_media,
-            import_directory
+            import_directory,
+            run_backup
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

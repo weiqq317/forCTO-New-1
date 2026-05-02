@@ -18,3 +18,10 @@ rfd = "0.14"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 mime_guess = "2.0.5"
+reqwest = { version = "0.12", features = ["multipart", "json", "stream"] }
+aws-config = "1.1"
+aws-sdk-s3 = "1.21"
+sha2 = "0.10"
+base64 = "0.22"
+hex = "0.4"
+async-trait = "0.1"
