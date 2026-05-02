@@ -5,7 +5,8 @@ CREATE TABLE IF NOT EXISTS photos (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     width INTEGER,
     height INTEGER,
-    type TEXT
+    type TEXT,
+    ocr_text TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tags (
@@ -40,3 +41,5 @@ CREATE INDEX IF NOT EXISTS idx_photos_created_at ON photos(created_at);
 CREATE INDEX IF NOT EXISTS idx_photo_tags_tag_id ON photo_tags(tag_id);
 CREATE INDEX IF NOT EXISTS idx_faces_photo_id ON faces(photo_id);
 CREATE INDEX IF NOT EXISTS idx_faces_person_id ON faces(person_id);
+CREATE INDEX IF NOT EXISTS idx_photos_path ON photos(path);
+CREATE INDEX IF NOT EXISTS idx_photos_ocr_text ON photos(ocr_text);

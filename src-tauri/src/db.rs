@@ -23,19 +23,20 @@ impl Db {
         width: Option<i64>,
         height: Option<i64>,
         photo_type: Option<&str>,
+        ocr_text: Option<&str>,
     ) -> Result<i64> {
         self.conn.execute(
-            "INSERT INTO photos (path, hash, width, height, type) VALUES (?1, ?2, ?3, ?4, ?5)
+            "INSERT INTO photos (path, hash, width, height, type, ocr_text) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(path) DO UPDATE SET 
-             hash=excluded.hash, width=excluded.width, height=excluded.height, type=excluded.type",
-            params![path, hash, width, height, photo_type],
+             hash=excluded.hash, width=excluded.width, height=excluded.height, type=excluded.type, ocr_text=excluded.ocr_text",
+            params![path, hash, width, height, photo_type, ocr_text],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
 
     pub fn get_photos_paginated(&self, limit: i64, offset: i64) -> Result<Vec<Photo>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, path, hash, created_at, width, height, type 
+            "SELECT id, path, hash, created_at, width, height, type, ocr_text 
              FROM photos 
              ORDER BY created_at DESC 
              LIMIT ?1 OFFSET ?2",
@@ -50,6 +51,7 @@ impl Db {
                 width: row.get(4)?,
                 height: row.get(5)?,
                 photo_type: row.get(6)?,
+                ocr_text: row.get(7)?,
             })
         })?;
 
@@ -78,34 +80,5 @@ impl Db {
         )?;
 
         Ok(())
-    }
-
-    pub fn search_photos(&self, query_tag: &str) -> Result<Vec<Photo>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT p.id, p.path, p.hash, p.created_at, p.width, p.height, p.type 
-             FROM photos p
-             JOIN photo_tags pt ON p.id = pt.photo_id
-             JOIN tags t ON pt.tag_id = t.id
-             WHERE t.name = ?1
-             ORDER BY p.created_at DESC",
-        )?;
-
-        let photo_iter = stmt.query_map(params![query_tag], |row| {
-            Ok(Photo {
-                id: row.get(0)?,
-                path: row.get(1)?,
-                hash: row.get(2)?,
-                created_at: row.get(3)?,
-                width: row.get(4)?,
-                height: row.get(5)?,
-                photo_type: row.get(6)?,
-            })
-        })?;
-
-        let mut photos = Vec::new();
-        for photo in photo_iter {
-            photos.push(photo?);
-        }
-        Ok(photos)
     }
 }
