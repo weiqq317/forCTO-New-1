@@ -4,14 +4,17 @@
 mod db;
 mod server;
 mod models;
+mod cache_manager;
 
 use std::sync::Mutex;
 use tauri::State;
 use walkdir::WalkDir;
 use models::Photo;
+use cache_manager::CacheManager;
 
 struct AppState {
     db: Mutex<db::Db>,
+    cache: Mutex<CacheManager>,
     axum_port: u16,
 }
 
@@ -21,13 +24,19 @@ fn get_axum_port(state: State<'_, AppState>) -> u16 {
 }
 
 #[tauri::command]
-fn fetch_media(state: State<'_, AppState>) -> Result<Vec<Photo>, String> {
+fn get_photos(state: State<'_, AppState>, limit: i64, offset: i64) -> Result<Vec<Photo>, String> {
     let db = state.db.lock().unwrap();
-    db.get_photos_paginated(100, 0).map_err(|e| e.to_string())
+    db.get_photos_paginated(limit, offset).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn import_directory(state: State<'_, AppState>) -> Result<(), String> {
+fn search_photos(state: State<'_, AppState>, query: String) -> Result<Vec<Photo>, String> {
+    let db = state.db.lock().unwrap();
+    db.search_photos(&query).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn import_folder(state: State<'_, AppState>) -> Result<(), String> {
     if let Some(folder_path) = rfd::AsyncFileDialog::new().pick_folder().await {
         let path = folder_path.path().to_path_buf();
 
@@ -67,17 +76,21 @@ async fn main() {
             std::fs::create_dir_all(&app_dir).unwrap();
             let db_path = app_dir.join("index.db");
             let db = db::Db::new(db_path).expect("Failed to initialize database");
+            let cache_dir = app_dir.join("cache");
+            let cache = CacheManager::new(cache_dir, 1000, 100);
 
             app.manage(AppState {
                 db: Mutex::new(db),
+                cache: Mutex::new(cache),
                 axum_port,
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_axum_port,
-            fetch_media,
-            import_directory
+            get_photos,
+            search_photos,
+            import_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
