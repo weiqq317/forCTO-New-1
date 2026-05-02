@@ -2,17 +2,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod db;
-mod server;
+mod web_server;
 mod models;
+mod backup;
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::State;
 use walkdir::WalkDir;
 use models::Photo;
 
-struct AppState {
-    db: Mutex<db::Db>,
-    axum_port: u16,
+pub struct AppState {
+    pub db: Arc<Mutex<db::Db>>,
+    pub axum_port: u16,
 }
 
 #[tauri::command]
@@ -56,8 +57,6 @@ async fn import_directory(state: State<'_, AppState>) -> Result<(), String> {
 
 #[tokio::main]
 async fn main() {
-    let axum_port = server::start_server().await;
-
     tauri::Builder::default()
         .setup(move |app| {
             let app_dir = app
@@ -67,9 +66,12 @@ async fn main() {
             std::fs::create_dir_all(&app_dir).unwrap();
             let db_path = app_dir.join("index.db");
             let db = db::Db::new(db_path).expect("Failed to initialize database");
+            
+            let shared_db = Arc::new(Mutex::new(db));
+            let axum_port = web_server::start_server(shared_db.clone());
 
             app.manage(AppState {
-                db: Mutex::new(db),
+                db: shared_db,
                 axum_port,
             });
             Ok(())
@@ -77,7 +79,8 @@ async fn main() {
         .invoke_handler(tauri::generate_handler![
             get_axum_port,
             fetch_media,
-            import_directory
+            import_directory,
+            backup::start_backup
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
