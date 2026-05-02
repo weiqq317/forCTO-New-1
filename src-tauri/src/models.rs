@@ -10,6 +10,7 @@ pub struct Photo {
     pub height: Option<i64>,
     #[serde(rename = "type")]
     pub photo_type: Option<String>,
+    pub ocr_text: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
