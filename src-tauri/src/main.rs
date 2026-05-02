@@ -4,15 +4,18 @@
 mod db;
 mod server;
 mod models;
+mod media_processor;
+mod ai_pipeline;
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::State;
-use walkdir::WalkDir;
 use models::Photo;
 
 struct AppState {
-    db: Mutex<db::Db>,
+    db: Arc<Mutex<db::Db>>,
     axum_port: u16,
+    ai_pipeline: Arc<ai_pipeline::AiPipeline>,
+    cache_dir: std::path::PathBuf,
 }
 
 #[tauri::command]
@@ -30,25 +33,39 @@ fn fetch_media(state: State<'_, AppState>) -> Result<Vec<Photo>, String> {
 async fn import_directory(state: State<'_, AppState>) -> Result<(), String> {
     if let Some(folder_path) = rfd::AsyncFileDialog::new().pick_folder().await {
         let path = folder_path.path().to_path_buf();
-
-        let mut files_to_insert = Vec::new();
-        for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
-            if entry.file_type().is_file() {
-                if let Some(ext) = entry.path().extension().and_then(|s| s.to_str()) {
-                    let ext = ext.to_lowercase();
-                    if ["png", "jpg", "jpeg", "gif", "webp"].contains(&ext.as_str()) {
-                        files_to_insert.push((
-                            entry.path().to_string_lossy().to_string(),
-                            ext
-                        ));
-                    }
-                }
+        let path_str = path.to_string_lossy().to_string();
+        let cache_dir = state.cache_dir.clone();
+        
+        let results = media_processor::import_folder(&path_str, &cache_dir).await?;
+        
+        for info in results {
+            let id = {
+                let db = state.db.lock().unwrap();
+                db.insert_photo(
+                    &info.path,
+                    Some(&info.hash),
+                    info.width.map(|w| w as i64),
+                    info.height.map(|h| h as i64),
+                    Some(&info.ext)
+                ).unwrap_or(0)
+            };
+            
+            if id > 0 {
+                let id_str = id.to_string();
+                // Send tasks to pipeline
+                state.ai_pipeline.submit_task(ai_pipeline::AiTask {
+                    photo_id: id_str.clone(),
+                    task_type: "CLIP".to_string(),
+                }).await;
+                state.ai_pipeline.submit_task(ai_pipeline::AiTask {
+                    photo_id: id_str.clone(),
+                    task_type: "FACE".to_string(),
+                }).await;
+                state.ai_pipeline.submit_task(ai_pipeline::AiTask {
+                    photo_id: id_str.clone(),
+                    task_type: "OCR".to_string(),
+                }).await;
             }
-        }
-
-        let db = state.db.lock().unwrap();
-        for (file, ext) in files_to_insert {
-            let _ = db.insert_photo(&file, None, None, None, Some(&ext));
         }
     }
     Ok(())
@@ -65,12 +82,20 @@ async fn main() {
                 .app_data_dir()
                 .unwrap_or_else(|| std::path::PathBuf::from("."));
             std::fs::create_dir_all(&app_dir).unwrap();
+            
+            let cache_dir = app_dir.join("thumbnails");
+            std::fs::create_dir_all(&cache_dir).unwrap();
+            
             let db_path = app_dir.join("index.db");
-            let db = db::Db::new(db_path).expect("Failed to initialize database");
+            let db = Arc::new(Mutex::new(db::Db::new(db_path).expect("Failed to initialize database")));
+            
+            let pipeline = Arc::new(ai_pipeline::AiPipeline::new(db.clone(), 4));
 
             app.manage(AppState {
-                db: Mutex::new(db),
+                db,
                 axum_port,
+                ai_pipeline: pipeline,
+                cache_dir,
             });
             Ok(())
         })
