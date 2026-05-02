@@ -3,18 +3,12 @@
 
 mod db;
 mod server;
+mod models;
 
-use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::State;
 use walkdir::WalkDir;
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct MediaAsset {
-    pub id: i64,
-    pub file_path: String,
-    pub imported_at: String,
-}
+use models::Photo;
 
 struct AppState {
     db: Mutex<db::Db>,
@@ -27,9 +21,9 @@ fn get_axum_port(state: State<'_, AppState>) -> u16 {
 }
 
 #[tauri::command]
-fn fetch_media(state: State<'_, AppState>) -> Result<Vec<MediaAsset>, String> {
+fn fetch_media(state: State<'_, AppState>) -> Result<Vec<Photo>, String> {
     let db = state.db.lock().unwrap();
-    db.list_assets().map_err(|e| e.to_string())
+    db.get_photos_paginated(100, 0).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -43,15 +37,18 @@ async fn import_directory(state: State<'_, AppState>) -> Result<(), String> {
                 if let Some(ext) = entry.path().extension().and_then(|s| s.to_str()) {
                     let ext = ext.to_lowercase();
                     if ["png", "jpg", "jpeg", "gif", "webp"].contains(&ext.as_str()) {
-                        files_to_insert.push(entry.path().to_string_lossy().to_string());
+                        files_to_insert.push((
+                            entry.path().to_string_lossy().to_string(),
+                            ext
+                        ));
                     }
                 }
             }
         }
 
         let db = state.db.lock().unwrap();
-        for file in files_to_insert {
-            let _ = db.insert_asset(&file);
+        for (file, ext) in files_to_insert {
+            let _ = db.insert_photo(&file, None, None, None, Some(&ext));
         }
     }
     Ok(())
