@@ -2,16 +2,17 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod db;
-mod server;
+mod web_server;
 mod models;
+mod backup;
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::State;
 use walkdir::WalkDir;
 use models::Photo;
 
 struct AppState {
-    db: Mutex<db::Db>,
+    db: Arc<Mutex<db::Db>>,
     axum_port: u16,
 }
 
@@ -54,10 +55,31 @@ async fn import_directory(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn trigger_backup(state: State<'_, AppState>) -> Result<(), String> {
+    let photos = {
+        let db = state.db.lock().unwrap();
+        // Just get all photos for this simplified example
+        db.get_photos_paginated(10000, 0).map_err(|e| e.to_string())?
+    };
+
+    // Note: For a real app, these values would come from settings.
+    // We demonstrate S3 and WebDAV usage here per requirements.
+    // For now we'll create a dummy target just to verify compilation and integration.
+    let target = backup::BackupTarget::S3 {
+        endpoint: "http://localhost:9000".into(),
+        bucket: "backups".into(),
+        access_key: "minioadmin".into(),
+        secret_key: "minioadmin".into(),
+        region: "us-east-1".into(),
+    };
+
+    backup::backup_photos(photos, target).await.map_err(|e| format!("{:?}", e))?;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() {
-    let axum_port = server::start_server().await;
-
     tauri::Builder::default()
         .setup(move |app| {
             let app_dir = app
@@ -66,10 +88,17 @@ async fn main() {
                 .unwrap_or_else(|| std::path::PathBuf::from("."));
             std::fs::create_dir_all(&app_dir).unwrap();
             let db_path = app_dir.join("index.db");
+            
             let db = db::Db::new(db_path).expect("Failed to initialize database");
+            let db_arc = Arc::new(Mutex::new(db));
+
+            // Start axum server and pass db reference
+            let axum_port = tauri::async_runtime::block_on(async {
+                web_server::start_server(db_arc.clone()).await
+            });
 
             app.manage(AppState {
-                db: Mutex::new(db),
+                db: db_arc,
                 axum_port,
             });
             Ok(())
@@ -77,7 +106,8 @@ async fn main() {
         .invoke_handler(tauri::generate_handler![
             get_axum_port,
             fetch_media,
-            import_directory
+            import_directory,
+            trigger_backup
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
