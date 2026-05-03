@@ -1,3 +1,4 @@
+// Database layer implementation
 use rusqlite::{params, Connection, Result};
 use std::path::Path;
 use crate::models::{Photo, Tag, PhotoTag, Face, Person};
